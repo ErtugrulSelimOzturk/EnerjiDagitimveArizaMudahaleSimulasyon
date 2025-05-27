@@ -36,7 +36,8 @@ Kullanıcının, harita üzerinden arızalı bölgeleri görebilmesini ve tıkla
 
 ## 📈 UML Diyagramı
 UML diyagramı, sınıflar ve veri yapıları arasındaki ilişkileri gösterir.  
-*(Bu alan diyagram görüntüsüyle desteklenebilir.)*
+![UML diyagram resim](https://github.com/user-attachments/assets/31f1b528-d0fd-4a14-beb2-e3a9862ce5df)
+
 
 ---
 
@@ -64,6 +65,8 @@ UML diyagramı, sınıflar ve veri yapıları arasındaki ilişkileri gösterir.
 Harita üzerinden ilçeler gözlemlenir:  
 - **Kırmızı çizgi**: Hatalı iletim  
 - **Yeşil çizgi**: Sağlıklı iletim
+<img width="934" alt="image" src="https://github.com/user-attachments/assets/41192cb7-3714-4c91-b029-bfb1998c36ca" />
+<img width="935" alt="image" src="https://github.com/user-attachments/assets/26104ccb-2692-416f-967e-11b0948a92bd" />
 
 ---
 
