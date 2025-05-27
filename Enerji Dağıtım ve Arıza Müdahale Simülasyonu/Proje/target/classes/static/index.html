@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>İstanbul Elektrik Haritası</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { height: 100vh; width: 100%; }
+        #hataCounter { 
+            position: absolute; 
+            top: 10px; 
+            right: 10px; 
+            background: white; 
+            padding: 10px; 
+            border: 1px solid #000; 
+            z-index: 1000; 
+            font-size: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+<div id="hataCounter">Kalan Arızalar: 0</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    const map = L.map('map').setView([41.0082, 28.9784], 11);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 18
+    }).addTo(map);
+
+    const addedPoints = new Set();
+    const districtLines = {};
+    const districtMarkers = {};
+    let geoJsonLayer = null;
+
+    function updateDistrictLine(ilceID, durum, districtData) {
+        if (districtLines[ilceID]) {
+            map.removeLayer(districtLines[ilceID]);
+        }
+        const lat = districtData.lat;
+        const lng = districtData.lng;
+        const merkezLat = districtData.elektrikHatti.merkezKoordinat.lat;
+        const merkezLng = districtData.elektrikHatti.merkezKoordinat.lng;
+        const lineColor = durum === "sorunsuz" ? "#388E3C" : "#D32F2F";
+        const polyline = L.polyline([[lat, lng], [merkezLat, merkezLng]], {
+            color: lineColor,
+            weight: 5,
+            opacity: 0.9,
+            smoothFactor: 1
+        }).addTo(map);
+        districtLines[ilceID] = polyline;
+        console.log(`Hat güncellendi: ilceID ${ilceID}, ilce: ${districtData.ilce}, renk: ${lineColor}`);
+
+        if (districtMarkers[ilceID]) {
+            districtMarkers[ilceID].bindPopup(`${districtData.ilce} (${durum})`);
+        }
+    }
+
+    function initMap() {
+        fetch('/api/district-data')
+            .then(res => res.json())
+            .then(districts => {
+                let hataCounter = districts.length > 0 ? districts[0].hataCounter : 0;
+                document.getElementById('hataCounter').innerText = `Kalan Arızalar: ${hataCounter}`;
+                console.log('Harita başlatılıyor, hataCounter:', hataCounter, 'ilçe sayısı:', districts.length);
+
+                districts.forEach(d => {
+                    const districtKey = `${d.lat},${d.lng}`;
+                    const merkezLat = d.elektrikHatti.merkezKoordinat.lat;
+                    const merkezLng = d.elektrikHatti.merkezKoordinat.lng;
+                    const merkezKey = `${merkezLat},${merkezLng}`;
+                    const ilceID = d.ilceID;
+
+                    const districtMarker = L.circleMarker([d.lat, d.lng], {
+                        radius: 10,
+                        fillColor: "#1976D2",
+                        color: "#000",
+                        weight: 2,
+                        fillOpacity: 0.9
+                    }).addTo(map);
+                    districtMarkers[ilceID] = districtMarker;
+
+                    districtMarker.on('click', () => {
+                        console.log(`Tıklanan ilceID: ${ilceID}`);
+                        fetch('/api/fix-issue', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ilceID })
+                        })
+                        .then(res => res.json())
+                        .then(result => {
+                            console.log('fixIssue yanıtı:', result);
+                            if (result.durum === "sorunsuz" || result.durum === "sorunlu") {
+                                fetch('/api/district-data')
+                                    .then(res => res.json())
+                                    .then(updatedDistricts => {
+                                        districts = updatedDistricts;
+                                        const district = districts.find(d => d.ilceID === ilceID);
+                                        if (district) {
+                                            updateDistrictLine(ilceID, district.durum, district);
+                                            districtMarkers[ilceID].bindPopup(`${district.ilce} (${district.durum})`).openPopup();
+                                            document.getElementById('hataCounter').innerText = `Kalan Arızalar: ${result.hataCounter}`;
+                                            map.invalidateSize();
+                                        }
+                                    });
+                            }
+                        })
+                        .catch(err => {
+                            console.error('fixIssue hata:', err);
+                            alert('Hata oluştu: ' + err.message);
+                        });
+                    });
+
+                    if (!addedPoints.has(merkezKey)) {
+                        L.circleMarker([merkezLat, merkezLng], {
+                            radius: 14,
+                            fillColor: "#FB8C00",
+                            color: "#000",
+                            weight: 3,
+                            fillOpacity: 0.9
+                        }).bindPopup(`${d.elektrikHatti.merkez} (Merkez)`).addTo(map);
+                        addedPoints.add(merkezKey);
+                        console.log(`Merkez eklendi: ${d.elektrikHatti.merkez}`);
+                    }
+
+                    updateDistrictLine(ilceID, d.durum, d);
+                });
+
+                map.invalidateSize();
+            })
+            .catch(err => {
+                console.error('Harita yükleme hatası:', err);
+                alert('Harita yüklenemedi.');
+            });
+
+        fetch('/geo/istanbul-districts.json')
+            .then(res => res.json())
+            .then(geoData => {
+                geoJsonLayer = L.geoJSON(geoData, {
+                    style: {
+                        color: "black",
+                        weight: 2,
+                        fillOpacity: 0
+                    },
+                    onEachFeature: (feature, layer) => {
+                        if (feature.properties && feature.properties.name) {
+                            layer.bindPopup(feature.properties.name);
+                        }
+                    }
+                }).addTo(map);
+                console.log('İlçe sınırları yüklendi');
+            })
+            .catch(err => console.error('İlçe sınırları yükleme hatası:', err));
+    }
+
+    function addRandomIssue() {
+        fetch('/api/add-random-issue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        })
+            .then(res => res.json())
+            .then(result => {
+                console.log('addRandomIssue yanıtı:', result);
+                if (result.ilceID !== -1) {
+                    fetch('/api/district-data')
+                        .then(res => res.json())
+                        .then(updatedDistricts => {
+                            districts = updatedDistricts;
+                            const district = districts.find(d => d.ilceID === result.ilceID);
+                            if (district) {
+                                updateDistrictLine(result.ilceID, result.durum, district);
+                                document.getElementById('hataCounter').innerText = `Kalan Arızalar: ${result.hataCounter}`;
+                                map.invalidateSize();
+                                console.log(`Yeni arıza: ilceID ${result.ilceID}, ilce: ${district.ilce}`);
+                            }
+                        });
+                } else {
+                    console.log('Sorunsuz ilçe yok.');
+                }
+            })
+            .catch(err => console.error('addRandomIssue hata:', err));
+    }
+
+    let districts = [];
+    fetch('/api/district-data')
+        .then(res => res.json())
+        .then(data => {
+            districts = data;
+            initMap();
+            setInterval(addRandomIssue, 4000);
+        })
+        .catch(err => console.error('İlk veri yükleme hatası:', err));
+</script>
+</body>
+</html>
